@@ -52,6 +52,15 @@ get -o "$pm_tmp" "https://registry.npmjs.org/picomatch/-/picomatch-${pm_ver}.tgz
   die "picomatch ${pm_ver} does not match the registry's sha512"
 pm_sha=$(sha256sum "$pm_tmp" | cut -c1-64)
 
+# localdev: SUSHI, ig-publisher-scripts and publisher.jar (GitHub reports the
+# release asset's sha256)
+sushi_ver=$(get https://registry.npmjs.org/fsh-sushi/latest | jq -r .version)
+scripts_commit=$(get https://api.github.com/repos/HL7/ig-publisher-scripts/commits/main | jq -r .sha)
+[[ $scripts_commit =~ ^[0-9a-f]{40}$ ]] || die "bad ig-publisher-scripts commit"
+read -r pub_ver pub_sha < <(get https://api.github.com/repos/HL7/fhir-ig-publisher/releases/latest |
+  jq -r '"\(.tag_name) \(.assets[] | select(.name=="publisher.jar") | .digest | ltrimstr("sha256:"))"')
+[[ $pub_sha =~ ^[0-9a-f]{64}$ ]] || die "bad publisher.jar checksum"
+
 set_arg() { sed -i -E "s|^ARG $1=.*|ARG $1=$2|" Dockerfile; grep -q "^ARG $1=$2\$" Dockerfile || die "could not set $1"; }
 set_arg RUBY_IMAGE "ruby:${ruby_tag}@${ruby_digest}"
 set_arg JEKYLL_VERSION "$jekyll_ver"
@@ -64,6 +73,10 @@ set_arg NODE_SHA256_AMD64 "$node_amd64_sha"
 set_arg NODE_SHA256_ARM64 "$node_arm64_sha"
 set_arg PICOMATCH_VERSION "$pm_ver"
 set_arg PICOMATCH_SHA256 "$pm_sha"
+set_arg SUSHI_VERSION "$sushi_ver"
+set_arg IG_PUBLISHER_SCRIPTS_COMMIT "$scripts_commit"
+set_arg PUBLISHER_VERSION "$pub_ver"
+set_arg PUBLISHER_SHA256 "$pub_sha"
 
 cat <<EOF
 ruby       ${ruby_tag}
@@ -72,4 +85,7 @@ jdk amd64  ${jdk_amd64_rel}
 jdk arm64  ${jdk_arm64_rel}
 node       ${node_ver}
 picomatch  ${pm_ver}
+sushi      ${sushi_ver}
+scripts    ${scripts_commit}
+publisher  ${pub_ver}
 EOF

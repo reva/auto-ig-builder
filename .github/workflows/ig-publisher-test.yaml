@@ -38,7 +38,7 @@ jobs:
     - name: Toolchain versions
       run: |
         docker run --rm --entrypoint sh ig-publisher:candidate -c \
-          'uname -m; java -version 2>&1 | sed -n 2p; ruby -v; node -v; npm -v; jekyll -v; dot -V 2>&1'
+          'uname -m; java -version 2>&1 | sed -n 2p; ruby -v; node -v; npm -v; jekyll -v; dot -V 2>&1; sushi --version; ls -l /opt/ig-publisher /opt/ig-publisher-scripts'
 
     - name: A/B test against the published localdev image
       run: |

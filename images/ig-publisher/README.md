@@ -25,6 +25,9 @@ the `Dockerfile`.
 | Node.js | release tarball from nodejs.org | version and SHA-256 per arch |
 | Jekyll | rubygems.org | version |
 | npm's bundled `picomatch` | npm registry, swapped in when Node bundles an older one | version and SHA-256 |
+| SUSHI (localdev) | npm registry | version |
+| `ig-publisher-scripts` (localdev) | GitHub | commit |
+| `publisher.jar` (localdev) | GitHub release of `HL7/fhir-ig-publisher` | version and SHA-256; `PUBLISHER_VERSION=none` leaves it out |
 
 To move every pin to the newest upstream release, run `./update-pins.sh` and
 review `git diff Dockerfile`. Release lines are chosen by env vars
@@ -36,7 +39,7 @@ only (for example 21.0.13.1, an x64-only fix for an AVX-512 bug).
 
 - **Purpose**: Provides an environment for local development and testing of the FHIR IG Publisher.
 - **Dependencies**: Inherits from the base image and includes additional configurations for local development.
-- **Entry Point**: `docker-entrypoint.sh`
+- **Entry Point**: `docker-entrypoint.sh`. It maps the `publisher` user to the owner of the mounted IG and runs the command. SUSHI, `ig-publisher-scripts` and `publisher.jar` are part of the image, so a container starts without network access.
 
 #### CI Build Image (`ci`)
 
@@ -101,6 +104,21 @@ Inside the Docker container, you'll have access to the following commands:
 - `_updatePublisher.sh` — download the latest FHIR IG Publisher jar.
 - `_genonce.sh` — run Sushi + FHIR IG Publisher to create output.
 - `_gencontinuous.sh` — run Sushi + FHIR IG Publisher in "watch mode".
+
+The scripts use the first `publisher.jar` they find in `input-cache/`, the
+parent folder of the IG or `~/.fhir/tools/publisher/`. If none of these has
+one, the entrypoint points them to the jar bundled in the image.
+
+Set `UPDATE_ON_START=1` to fetch the latest SUSHI, `ig-publisher-scripts` and
+`publisher.jar` into the home directory at startup, where they take
+precedence over the bundled ones. Mount `~/.fhir` to keep the jar between
+runs.
+
+Without network access (`docker run --network none ...`), `_genonce.sh`
+detects that it is offline and runs the publisher with `-tx n/a`. All
+packages the IG depends on must then be in the mounted `~/.fhir/packages`,
+and `sushi-config.yaml` must not use wildcard versions such as `3.3.x`,
+because SUSHI resolves those against the package registry.
 
 #### Build an Implementation Guide (IG)
 

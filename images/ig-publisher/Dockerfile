@@ -17,6 +17,12 @@ ARG NODE_SHA256_ARM64=8bd3dc69eee8f3f226315a80d7d1d4faccf217a4c8fae500168ac2e38f
 # npm's bundled picomatch < 4.0.4 has CVE-2026-33671 (ReDoS); replaced when older
 ARG PICOMATCH_VERSION=4.0.7
 ARG PICOMATCH_SHA256=697b463be3cdbd9ffc8f4194fd5019a69ddf95875fb703d78b2b115cc9e740a8
+# localdev only: tools that the entrypoint used to fetch on every start
+ARG SUSHI_VERSION=3.21.1
+ARG IG_PUBLISHER_SCRIPTS_COMMIT=9e6c7de21624e99dfd6739657a7895dfbe7d1357
+# set PUBLISHER_VERSION=none to build without a bundled publisher.jar
+ARG PUBLISHER_VERSION=3.0.6
+ARG PUBLISHER_SHA256=70f8eaf4d7b894d7c47a78a624248b7863832659b6275b474cd7d990f1c54126
 # --- end pins ---
 
 # ------- Gems (native extensions compiled here, toolchain discarded) -------
@@ -70,13 +76,33 @@ COPY --from=node /opt/node/share /usr/local/share
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
+# ------- IG Publisher jar (localdev) -------
+FROM ${RUBY_IMAGE} AS publisher-jar
+ARG PUBLISHER_VERSION PUBLISHER_SHA256
+RUN mkdir -p /opt/ig-publisher && \
+    if [ "${PUBLISHER_VERSION}" != none ]; then \
+        apt-get update && apt-get -y --no-install-recommends install curl ca-certificates && \
+        curl -fsSL --retry 3 -o /opt/ig-publisher/publisher.jar \
+            "https://github.com/HL7/fhir-ig-publisher/releases/download/${PUBLISHER_VERSION}/publisher.jar" && \
+        echo "${PUBLISHER_SHA256}  /opt/ig-publisher/publisher.jar" | sha256sum -c -; \
+    fi
+
 # ------- Begin Local Dev -------
 FROM base AS localdev
 LABEL maintainer="Josh Mandel"
-COPY ./localdev-files/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN apt-get update && apt-get -y --no-install-recommends install gosu && \
     rm -rf /var/lib/apt/lists/*
+
+# Installed as root outside the home directory, so the uid change at startup
+# does not have to chown (and copy up) them.
+ARG SUSHI_VERSION
+RUN npm install -g "fsh-sushi@${SUSHI_VERSION}" && npm cache clean --force && sushi --version
+ARG IG_PUBLISHER_SCRIPTS_COMMIT
+ADD https://github.com/HL7/ig-publisher-scripts.git#${IG_PUBLISHER_SCRIPTS_COMMIT} /opt/ig-publisher-scripts
+COPY --from=publisher-jar /opt/ig-publisher /opt/ig-publisher
+
+COPY ./localdev-files/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN useradd -d /home/publisher -m publisher
 USER publisher
@@ -88,7 +114,7 @@ RUN mkdir /home/publisher/ig && \
 
 WORKDIR /home/publisher/ig
 VOLUME /home/publisher/ig
-ENV PATH="/home/publisher/bin:/home/publisher/bin/ig-publisher-scripts:/home/publisher/.node/bin:${PATH}"
+ENV PATH="/home/publisher/bin:/home/publisher/bin/ig-publisher-scripts:/home/publisher/.node/bin:/opt/ig-publisher-scripts:${PATH}"
 USER root
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bash"]
